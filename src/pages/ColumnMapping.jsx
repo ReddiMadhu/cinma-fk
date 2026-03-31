@@ -20,12 +20,23 @@ const ALL_CANONICALS = [
   "RiskCount", "NumberOfStories", "GrossArea", "YearBuilt", "YearRetrofitted",
   "BuildingValue", "ContentsValue", "TimeElementValue", "Currency", "LineOfBusiness",
   "SprinklerSystem", "RoofGeometry", "FoundationType", "WallSiding", "SoftStory", "WallType",
+  // RMS canonicals
+  "ACCNTNUM", "LOCNUM", "LOCNAME", "STREETNAME", "CITY", "STATECODE", "POSTALCODE", "CNTRYCODE",
+  "BLDGSCHEME", "BLDGCLASS", "OCCSCHEME", "OCCTYPE",
+  "NUMBLDGS", "NUMSTORIES", "FLOORAREA", "YEARBUILT", "YEARUPGRAD",
+  "SPRINKLER", "ROOFGEOM", "FOUNDATION", "CLADDING", "SOFTSTORY", "WALLTYPE",
+  "EQCV1VAL", "EQCV2VAL", "EQCV3VAL",
+  "WSCV1VAL", "WSCV2VAL", "WSCV3VAL",
+  "TOCV1VAL", "TOCV2VAL", "TOCV3VAL",
+  "FLCV1VAL", "FLCV2VAL", "FLCV3VAL",
+  "TRCV1VAL", "TRCV2VAL", "TRCV3VAL",
+  "FRCV1VAL", "FRCV2VAL", "FRCV3VAL",
 ];
 
 export default function ColumnMapping() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { setColumnMap, markStageComplete, targetFormat } = usePipelineStore();
+  const { setColumnMap, markStageComplete } = usePipelineStore();
   const [localMap, setLocalMap] = useState({});
 
   const { data, isLoading } = useQuery({
@@ -34,11 +45,21 @@ export default function ColumnMapping() {
     staleTime: Infinity,
   });
 
+  // Auto-map on load — strict 1:1: first source column to claim a canonical wins.
+  // Subsequent columns that would claim the same canonical get null (left unmapped).
   useEffect(() => {
     if (data?.suggestions) {
       const auto = {};
+      const claimed = new Set();
+
       for (const [col, sugs] of Object.entries(data.suggestions)) {
-        auto[col] = sugs?.[0]?.score >= 0.5 ? sugs[0].canonical : null;
+        const best = sugs?.find((s) => s.score >= 0.5 && !claimed.has(s.canonical));
+        if (best) {
+          auto[col] = best.canonical;
+          claimed.add(best.canonical);
+        } else {
+          auto[col] = null;
+        }
       }
       setLocalMap(auto);
     }
@@ -56,13 +77,36 @@ export default function ColumnMapping() {
       }
       navigate(`/session/${id}/run`);
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => {
+      const msg = err?.response?.data?.detail ?? err.message;
+      toast.error(msg);
+    },
   });
 
   const mappedValues = Object.values(localMap).filter(Boolean);
   const missingRequired = AIR_REQUIRED.filter((r) => !mappedValues.includes(r));
   const suggestions = data?.suggestions ?? {};
   const cols = Object.keys(suggestions);
+
+  // canonical → [source columns that claim it]
+  const canonicalUsedBy = {};
+  for (const [col, canonical] of Object.entries(localMap)) {
+    if (canonical) {
+      if (!canonicalUsedBy[canonical]) canonicalUsedBy[canonical] = [];
+      canonicalUsedBy[canonical].push(col);
+    }
+  }
+
+  // Canonicals claimed by 2+ source columns = violations
+  const duplicateCanonicals = new Set(
+    Object.entries(canonicalUsedBy)
+      .filter(([, srcs]) => srcs.length > 1)
+      .map(([canonical]) => canonical)
+  );
+
+  const handleChange = (col, value) => {
+    setLocalMap((prev) => ({ ...prev, [col]: value || null }));
+  };
 
   return (
     <AppShell showWizard>
@@ -72,13 +116,14 @@ export default function ColumnMapping() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight mb-1">Column Mapping</h1>
             <p className="text-muted-foreground text-sm">
-              Review AI suggestions and override any mappings before continuing.
+              Review AI suggestions and override any mappings before continuing.{" "}
+              Each canonical field can only be mapped by <strong>one</strong> source column.
             </p>
           </div>
           <Button
             size="lg"
             className="btn-glow shrink-0"
-            disabled={confirmMut.isPending}
+            disabled={confirmMut.isPending || duplicateCanonicals.size > 0}
             onClick={() => confirmMut.mutate()}
           >
             {confirmMut.isPending ? "Confirming…" : "Confirm Mapping"}
@@ -86,26 +131,41 @@ export default function ColumnMapping() {
           </Button>
         </div>
 
+        {/* Duplicate conflict banner */}
+        {duplicateCanonicals.size > 0 && (
+          <div className="flex items-start gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">
+            <AlertTriangle className="h-4 w-4 text-rose-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-rose-300">
+                Duplicate mapping — resolve before confirming
+              </p>
+              <p className="text-xs text-rose-400/80 mt-1 flex flex-wrap gap-3">
+                {[...duplicateCanonicals].map((c) => (
+                  <span key={c}>
+                    <code className="font-mono">{c}</code>
+                    {" ← "}
+                    {canonicalUsedBy[c].join(", ")}
+                  </span>
+                ))}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Missing required warning */}
         {missingRequired.length > 0 && (
           <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
             <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
             <div>
               <p className="text-sm font-medium text-amber-300">Required fields not mapped</p>
-              <p className="text-xs text-amber-400/80 mt-1">
-                {missingRequired.join(", ")}
-              </p>
+              <p className="text-xs text-amber-400/80 mt-1">{missingRequired.join(", ")}</p>
             </div>
           </div>
         )}
 
         {/* Summary bar */}
         <div className="grid grid-cols-3 gap-3">
-          <MetricPill
-            label="Total Columns"
-            value={cols.length}
-            color="text-foreground"
-          />
+          <MetricPill label="Total Columns" value={cols.length} color="text-foreground" />
           <MetricPill
             label="Auto-Mapped"
             value={Object.values(localMap).filter(Boolean).length}
@@ -123,7 +183,7 @@ export default function ColumnMapping() {
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Info className="h-4 w-4 text-muted-foreground" />
-              Source → Canonical Field Mapping
+              Source &rarr; Canonical Field Mapping
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -132,7 +192,10 @@ export default function ColumnMapping() {
                 <thead>
                   <tr className="border-b border-border bg-muted/20">
                     {["Source Column", "Sample Values", "AI Suggestion", "Confidence", "Method", "Override"].map((h) => (
-                      <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                      <th
+                        key={h}
+                        className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap"
+                      >
                         {h}
                       </th>
                     ))}
@@ -154,34 +217,46 @@ export default function ColumnMapping() {
                         const best = sugs[0];
                         const current = localMap[col];
                         const isMapped = !!current;
+                        const isDuplicate = current && duplicateCanonicals.has(current);
+
+                        // Canonicals already used by OTHER rows (not this one)
+                        const usedByOthers = new Set(
+                          Object.entries(localMap)
+                            .filter(([c, v]) => c !== col && v)
+                            .map(([, v]) => v)
+                        );
 
                         return (
                           <tr
                             key={col}
                             className={cn(
                               "border-b border-border transition-colors",
-                              isMapped ? "hover:bg-muted/20" : "bg-amber-500/5 hover:bg-amber-500/10"
+                              isDuplicate
+                                ? "bg-rose-500/10 hover:bg-rose-500/15"
+                                : isMapped
+                                ? "hover:bg-muted/20"
+                                : "bg-amber-500/5 hover:bg-amber-500/10"
                             )}
                           >
-                            {/* Source col */}
-                            <td className="py-3 px-4 font-mono text-xs font-semibold">
-                              {col}
-                            </td>
+                            {/* Source column */}
+                            <td className="py-3 px-4 font-mono text-xs font-semibold">{col}</td>
 
                             {/* Sample values */}
                             <td className="py-3 px-4 max-w-[160px]">
-                              <div className="flex flex-col gap-0.5">
-                                {(data?.suggestions?.[col]?.slice?.(0, 1) ?? []).map((_, idx) => (
-                                  <span key={idx} className="text-xs text-muted-foreground truncate" />
-                                ))}
-                                <span className="text-xs text-muted-foreground italic">—</span>
-                              </div>
+                              <span className="text-xs text-muted-foreground italic">—</span>
                             </td>
 
-                            {/* AI suggestion */}
+                            {/* AI suggestion — strike-through if already taken */}
                             <td className="py-3 px-4">
                               {best ? (
-                                <span className="text-xs font-medium text-primary">
+                                <span
+                                  className={cn(
+                                    "text-xs font-medium",
+                                    usedByOthers.has(best.canonical)
+                                      ? "text-muted-foreground line-through"
+                                      : "text-primary"
+                                  )}
+                                >
                                   {best.canonical}
                                 </span>
                               ) : (
@@ -207,31 +282,38 @@ export default function ColumnMapping() {
                               )}
                             </td>
 
-                            {/* Override select */}
+                            {/* Override select — options taken by others are disabled */}
                             <td className="py-3 px-4">
-                              <select
-                                value={current ?? ""}
-                                onChange={(e) =>
-                                  setLocalMap((prev) => ({
-                                    ...prev,
-                                    [col]: e.target.value || null,
-                                  }))
-                                }
-                                className={cn(
-                                  "text-xs rounded-lg px-2 py-1.5 border transition-colors bg-background outline-none",
-                                  "focus:border-primary focus:ring-1 focus:ring-primary",
-                                  isMapped
-                                    ? "border-border text-foreground"
-                                    : "border-amber-500/40 text-amber-400"
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={current ?? ""}
+                                  onChange={(e) => handleChange(col, e.target.value)}
+                                  className={cn(
+                                    "text-xs rounded-lg px-2 py-1.5 border transition-colors bg-background outline-none",
+                                    "focus:border-primary focus:ring-1 focus:ring-primary",
+                                    isDuplicate
+                                      ? "border-rose-500/60 text-rose-400"
+                                      : isMapped
+                                      ? "border-border text-foreground"
+                                      : "border-amber-500/40 text-amber-400"
+                                  )}
+                                >
+                                  <option value="">— Unmapped —</option>
+                                  {ALL_CANONICALS.map((c) => {
+                                    const takenByOther = usedByOthers.has(c);
+                                    return (
+                                      <option key={c} value={c} disabled={takenByOther}>
+                                        {takenByOther ? `⛔ ${c} (already mapped)` : c}
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                                {isDuplicate && (
+                                  <span className="text-[10px] text-rose-400 font-semibold whitespace-nowrap">
+                                    ⚠ Duplicate
+                                  </span>
                                 )}
-                              >
-                                <option value="">— Unmapped —</option>
-                                {ALL_CANONICALS.map((c) => (
-                                  <option key={c} value={c}>
-                                    {c}
-                                  </option>
-                                ))}
-                              </select>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -272,7 +354,7 @@ export default function ColumnMapping() {
           <Button
             size="lg"
             className="btn-glow"
-            disabled={confirmMut.isPending}
+            disabled={confirmMut.isPending || duplicateCanonicals.size > 0}
             onClick={() => confirmMut.mutate()}
           >
             {confirmMut.isPending ? "Confirming…" : "Confirm & Continue"}

@@ -89,18 +89,37 @@ export default function MapPage() {
   // ── Canonical field options for the target format ──────────────────────────
   const canonicalOptions = targetFormat === 'RMS' ? RMS_FIELDS : AIR_FIELDS;
 
-  // ── Initialize localMap from API suggestions (top suggestion per column) ───
+  // ── Initialize localMap — highest confidence wins each canonical (1:1 enforced)
   useEffect(() => {
     if (!data?.suggestions) return;
-    const initial = {};
-    for (const [col, suggestions] of Object.entries(data.suggestions)) {
-      // suggestions is an array of { canonical, score, method, reason }
-      if (suggestions && suggestions.length > 0) {
-        initial[col] = suggestions[0].canonical;
-      } else {
-        initial[col] = null;
+
+    // Gather every (sourceCol, canonical, score) triple
+    const candidates = [];
+    for (const [col, sugs] of Object.entries(data.suggestions)) {
+      if (sugs && sugs.length > 0) {
+        candidates.push({ col, canonical: sugs[0].canonical, score: sugs[0].score });
       }
     }
+
+    // Sort highest score first — winner takes the canonical
+    candidates.sort((a, b) => b.score - a.score);
+
+    const claimed = new Set();
+    const initial = {};
+
+    // Pre-fill all cols as null so unmapped columns still appear in the map
+    for (const col of Object.keys(data.suggestions)) {
+      initial[col] = null;
+    }
+
+    for (const { col, canonical, score } of candidates) {
+      if (canonical && !claimed.has(canonical) && score >= 0.5) {
+        initial[col] = canonical;
+        claimed.add(canonical);
+      }
+      // else: stays null — skipped because a higher-confidence column already claimed it
+    }
+
     setLocalMap(initial);
   }, [data]);
 
@@ -123,6 +142,22 @@ export default function MapPage() {
   const mappedCount = Object.values(localMap).filter(Boolean).length;
   const skippedCount = Object.values(localMap).filter((v) => !v).length;
   const unmappedWarningCols = sourceColumns.filter((col) => !localMap[col]);
+
+  // ── 1:1 violation detection ────────────────────────────────────────────────
+  // Build canonical → [source cols that claim it]
+  const canonicalUsedBy = {};
+  for (const [col, canonical] of Object.entries(localMap)) {
+    if (canonical) {
+      if (!canonicalUsedBy[canonical]) canonicalUsedBy[canonical] = [];
+      canonicalUsedBy[canonical].push(col);
+    }
+  }
+  // Any canonical claimed by 2+ source cols is a duplicate violation
+  const duplicateCanonicals = new Set(
+    Object.entries(canonicalUsedBy)
+      .filter(([, srcs]) => srcs.length > 1)
+      .map(([c]) => c)
+  );
 
   // ── Error state ────────────────────────────────────────────────────────────
   if (error) {
@@ -150,6 +185,25 @@ export default function MapPage() {
       <div className="mb-8 flex justify-center">
         <StepIndicator currentStep="map" />
       </div>
+
+      {/* Duplicate conflict banner */}
+      {!isLoading && duplicateCanonicals.size > 0 && (
+        <div className="mb-5 flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400">
+          <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <strong>Duplicate mapping — resolve before confirming:</strong>
+            <span className="ml-2">
+              {[...duplicateCanonicals].map((c) => (
+                <span key={c} className="mr-3">
+                  <code className="font-mono">{c}</code>
+                  {' ← '}
+                  {canonicalUsedBy[c].join(', ')}
+                </span>
+              ))}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Warning banner for unmapped columns */}
       {!isLoading && unmappedWarningCols.length > 0 && (
@@ -190,18 +244,25 @@ export default function MapPage() {
                 const topSug = suggestions[0] ?? null;
                 const currentValue = localMap[col] ?? null;
                 const isMapped = !!currentValue;
-                // score is 0-1 from backend
+                const isDuplicate = currentValue && duplicateCanonicals.has(currentValue);
                 const score = topSug?.score ?? 0;
-
-                // Sample values: from uploadMeta.sample if available
                 const samples = sampleMap[col] ?? [];
+
+                // Canonicals already used by OTHER source columns
+                const usedByOthers = new Set(
+                  Object.entries(localMap)
+                    .filter(([c, v]) => c !== col && v)
+                    .map(([, v]) => v)
+                );
 
                 return (
                   <div
                     key={col}
                     className={cn(
                       'grid grid-cols-12 gap-4 px-5 py-3.5 items-center transition-colors',
-                      !isMapped ? 'bg-amber-500/5' : 'hover:bg-accent/20'
+                      isDuplicate
+                        ? 'bg-rose-500/8 border-l-2 border-rose-500/60'
+                        : !isMapped ? 'bg-amber-500/5' : 'hover:bg-accent/20'
                     )}
                   >
                     {/* Source column name */}
@@ -249,11 +310,19 @@ export default function MapPage() {
                           <SelectItem value={NONE_VALUE}>
                             <span className="text-muted-foreground italic">— skip column —</span>
                           </SelectItem>
-                          {canonicalOptions.map((opt) => (
-                            <SelectItem key={opt} value={opt}>
-                              {opt}
-                            </SelectItem>
-                          ))}
+                          {canonicalOptions.map((opt) => {
+                            const takenByOther = usedByOthers.has(opt);
+                            return (
+                              <SelectItem
+                                key={opt}
+                                value={opt}
+                                disabled={takenByOther}
+                                className={cn(takenByOther && 'opacity-40 line-through')}
+                              >
+                                {takenByOther ? `⛔ ${opt}` : opt}
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
 
@@ -301,9 +370,11 @@ export default function MapPage() {
                       )}
                     </div>
 
-                    {/* Status icon */}
-                    <div className="col-span-1 flex justify-center">
-                      {isMapped ? (
+                    {/* Status icon — rose if duplicate, amber if unmapped, green if ok */}
+                    <div className="col-span-1 flex justify-center items-center gap-1">
+                      {isDuplicate ? (
+                        <AlertCircle className="w-4 h-4 text-rose-400" />
+                      ) : isMapped ? (
                         <CheckCircle2 className="w-4 h-4 text-green-400" />
                       ) : (
                         <AlertCircle className="w-4 h-4 text-amber-400" />
@@ -342,7 +413,7 @@ export default function MapPage() {
         id="btn-confirm-mapping"
         size="lg"
         onClick={() => confirmMutation.mutate()}
-        disabled={isLoading || confirmMutation.isPending || sourceColumns.length === 0}
+        disabled={isLoading || confirmMutation.isPending || sourceColumns.length === 0 || duplicateCanonicals.size > 0}
         className="w-full gradient-primary glow-primary text-white font-semibold rounded-xl h-12 text-base hover:opacity-90 transition-opacity disabled:opacity-40"
       >
         {confirmMutation.isPending ? (
