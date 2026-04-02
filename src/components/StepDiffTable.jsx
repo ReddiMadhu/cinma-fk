@@ -1,128 +1,138 @@
 import { useQuery } from '@tanstack/react-query';
 import { getSessionDiff } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertCircle, ChevronRight, ArrowRight } from 'lucide-react';
+import { AlertCircle, ArrowRight, Unlink2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMemo } from 'react';
 
-// Maps backend columns into logical visual groups for side-by-side rendering
-function buildColumnGroups(step, beforeCols, afterCols) {
+// ── Group pairs into visual sections ─────────────────────────────────────────
+
+function buildGroups(step, pairs, fullAddressMode) {
   if (step === 'geocode') {
-    return [
-      {
-        title: 'Provided Address',
-        before: beforeCols,
-        after: [],
-      },
-      {
-        title: 'Geocoding Result',
-        before: [],
-        after: afterCols,
-      }
-    ].filter(g => g.before.length > 0 || g.after.length > 0);
-  }
-  
-  if (step === 'map-codes') {
-    const isOccBefore = (c) => c.toLowerCase().includes('occ');
-    const isConstBefore = (c) => c.toLowerCase().includes('const') || c.toLowerCase().includes('bldg');
-    const isOccAfter = (c) => c.toLowerCase().includes('occ');
-    const isConstAfter = (c) => c.toLowerCase().includes('const');
+    if (fullAddressMode) {
+      // All address pairs share the same "before" (the raw full-address string).
+      // Split into Address Components and Geocoding Info.
+      const infoLabels = new Set(['GeocodingStatus', 'Geosource']);
+      return [
+        {
+          title: 'Extracted Address Components',
+          pairs: pairs.filter(p => !infoLabels.has(p.label)),
+          fullAddressMode: true,
+        },
+        {
+          title: 'Geocoding Info',
+          pairs: pairs.filter(p => infoLabels.has(p.label)),
+          fullAddressMode: false,
+        },
+      ].filter(g => g.pairs.length > 0);
+    }
+
+    // Normal: separate input fields → separate outputs
+    const addrLabels  = new Set(['Street', 'City', 'Area', 'PostalCode', 'CountryISO',
+      'STREETNAME', 'CITY', 'STATECODE', 'POSTALCODE', 'CNTRYCODE']);
+    const coordLabels = new Set(['Latitude', 'Longitude']);
+    const infoLabels  = new Set(['GeocodingStatus', 'Geosource']);
 
     return [
-      {
-        title: 'Occupancy Mapping',
-        before: beforeCols.filter(isOccBefore),
-        after: afterCols.filter(isOccAfter),
-      },
-      {
-        title: 'Construction Mapping',
-        before: beforeCols.filter(isConstBefore),
-        after: afterCols.filter(isConstAfter),
-      }
-    ].filter(g => g.before.length > 0 || g.after.length > 0);
+      { title: 'Address Fields',  pairs: pairs.filter(p => addrLabels.has(p.label)) },
+      { title: 'Coordinates',      pairs: pairs.filter(p => coordLabels.has(p.label)) },
+      { title: 'Geocoding Info',   pairs: pairs.filter(p => infoLabels.has(p.label)) },
+    ].filter(g => g.pairs.length > 0);
+  }
+
+  if (step === 'map-codes') {
+    return [
+      { title: 'Occupancy',    pairs: pairs.filter(p => p.label.toLowerCase().startsWith('occ')) },
+      { title: 'Construction', pairs: pairs.filter(p => p.label.toLowerCase().startsWith('const')) },
+    ].filter(g => g.pairs.length > 0);
   }
 
   if (step === 'normalize') {
-    return [
-      {
-        title: 'Year Built',
-        before: beforeCols.filter(c => c.toLowerCase().includes('year')),
-        after: afterCols.filter(c => c.toLowerCase().includes('year')),
-      },
-      {
-        title: 'Stories',
-        before: beforeCols.filter(c => c.toLowerCase().includes('stor')),
-        after: afterCols.filter(c => c.toLowerCase().includes('stor')),
-      },
-      {
-        title: 'Area',
-        before: beforeCols.filter(c => c.toLowerCase().includes('area')),
-        after: afterCols.filter(c => c.toLowerCase().includes('area')),
-      },
-      {
-        title: 'Value',
-        before: beforeCols.filter(c => c.toLowerCase().includes('val') || c.toLowerCase().includes('eqcv')),
-        after: afterCols.filter(c => c.toLowerCase().includes('val') || c.toLowerCase().includes('eqcv')),
-      },
-      {
-        title: 'Roof',
-        before: beforeCols.filter(c => c.toLowerCase().includes('roof')),
-        after: afterCols.filter(c => c.toLowerCase().includes('roof')),
-      },
-      {
-        title: 'Wall/Clad',
-        before: beforeCols.filter(c => c.toLowerCase().includes('wall') || c.toLowerCase().includes('clad')),
-        after: afterCols.filter(c => c.toLowerCase().includes('wall') || c.toLowerCase().includes('clad')),
-      },
-      {
-        title: 'Foundation',
-        before: beforeCols.filter(c => c.toLowerCase().includes('found')),
-        after: afterCols.filter(c => c.toLowerCase().includes('found')),
-      },
-      {
-        title: 'Sprinkler',
-        before: beforeCols.filter(c => c.toLowerCase().includes('sprink')),
-        after: afterCols.filter(c => c.toLowerCase().includes('sprink')),
-      }
-    ].filter(g => g.before.length > 0 || g.after.length > 0);
+    const groups = [
+      { title: 'Year',              keywords: ['year', 'upgrad'] },
+      { title: 'Stories / Count',   keywords: ['stor', 'numbldgs', 'riskcount'] },
+      { title: 'Area',              keywords: ['area', 'floor'] },
+      { title: 'Values',            keywords: ['value', 'val', 'eqcv'] },
+      { title: 'Currency / LOB',    keywords: ['cur', 'lcur', 'currency', 'line', 'lob'] },
+      { title: 'Roof',              keywords: ['roof', 'roofgeom'] },
+      { title: 'Wall / Cladding',   keywords: ['wall', 'clad', 'siding'] },
+      { title: 'Foundation',        keywords: ['found'] },
+      { title: 'Sprinkler / Soft',  keywords: ['sprink', 'softstory', 'soft'] },
+    ];
+
+    const used = new Set();
+    const result = groups.map(g => {
+      const matched = pairs.filter(p => {
+        if (used.has(p.label)) return false;
+        const key = p.label.toLowerCase();
+        return g.keywords.some(kw => key.includes(kw));
+      });
+      matched.forEach(p => used.add(p.label));
+      return { title: g.title, pairs: matched };
+    });
+
+    const remaining = pairs.filter(p => !used.has(p.label));
+    if (remaining.length > 0) result.push({ title: 'Other', pairs: remaining });
+    return result.filter(g => g.pairs.length > 0);
   }
 
-  // Fallback
-  return [{ title: 'Changes', before: beforeCols, after: afterCols }];
+  return [{ title: 'Changes', pairs }];
 }
 
-function ValueCell({ val, isChanged, isError, isOutput }) {
-  if (val === null || val === undefined || val === '') {
-    return <span className="opacity-30">—</span>;
-  }
-  
+// ── Value cells ───────────────────────────────────────────────────────────────
+
+function ValueCell({ val, isOutput, isChanged, isError }) {
+  const empty = val === null || val === undefined || val === '';
+  if (empty) return <span className="opacity-25 select-none">—</span>;
+
   if (isOutput) {
     if (isError) {
       return (
-        <div className="inline-flex items-center justify-center px-2 py-0.5 rounded border border-rose-200 bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400 dark:border-rose-500/30 font-semibold truncate max-w-[140px]">
+        <span className="inline-flex items-center px-2 py-0.5 rounded border border-rose-200 bg-rose-50 text-rose-700 font-semibold text-[11px] truncate max-w-[160px]">
           {String(val)}
-        </div>
+        </span>
       );
     }
     return (
-      <div className={cn(
-        "inline-flex items-center justify-center px-2 py-0.5 rounded border font-medium truncate max-w-[140px]",
-        isChanged 
-         ? "bg-primary/10 border-primary/20 text-primary" 
-         : "bg-muted/50 border-border/50 text-foreground"
+      <span className={cn(
+        'inline-flex items-center px-2 py-0.5 rounded border font-medium text-[11px] truncate max-w-[160px]',
+        isChanged
+          ? 'bg-primary/10 border-primary/20 text-primary'
+          : 'bg-muted/50 border-border/50 text-foreground'
       )}>
         {String(val)}
-      </div>
+      </span>
     );
   }
 
-  // Raw Input value styling
   return (
-    <span className="text-muted-foreground truncate max-w-[140px] block">
+    <span className="text-muted-foreground text-[11px] truncate max-w-[200px] block">
       {String(val)}
     </span>
   );
 }
+
+// ── Full-address mode: one raw string → many extracted columns ────────────────
+// Renders as: [Full Address raw text] → [Street] [City] [Area] [PostalCode] [CountryISO] [Lat] [Lon]
+
+function FullAddressGroupHeader({ group, stepColor, stepBgColor }) {
+  return (
+    <th
+      colSpan={1 + group.pairs.length} // 1 "before" col + N "after" cols
+      className={cn(
+        'px-4 py-1.5 border-b border-r-2 border-r-border/60 text-[10px] font-bold uppercase tracking-wider text-center',
+        stepBgColor, stepColor
+      )}
+    >
+      <span className="flex items-center justify-center gap-1.5">
+        <Unlink2 className="w-3 h-3 opacity-70" />
+        {group.title}
+      </span>
+    </th>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, stepBorderColor }) {
   const { data, isLoading, isError, error } = useQuery({
@@ -131,10 +141,13 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
     staleTime: Infinity,
   });
 
-  const columnGroups = useMemo(() => {
-    if (!data?.columns) return [];
-    return buildColumnGroups(step, data.columns.before, data.columns.after);
-  }, [data, step]);
+  const fullAddressMode = data?.full_address_mode ?? false;
+  const fullAddressSrc  = data?.full_address_src ?? null;
+
+  const groups = useMemo(() => {
+    if (!data?.pairs) return [];
+    return buildGroups(step, data.pairs, fullAddressMode);
+  }, [data, step, fullAddressMode]);
 
   if (isLoading) {
     return (
@@ -158,135 +171,353 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
     return (
       <div className="h-full flex items-center justify-center p-8 text-muted-foreground bg-white/40">
         <div className="text-center">
-          <div className={cn("w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3", stepBgColor)}>
-             <ArrowRight className={cn("w-5 h-5", stepColor)} />
+          <div className={cn('w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3', stepBgColor)}>
+            <ArrowRight className={cn('w-5 h-5', stepColor)} />
           </div>
-          <p>No changes detected or ran for this step.</p>
+          <p>No changes detected for this step.</p>
         </div>
       </div>
     );
   }
 
+  // Flat ordered pairs for data rows (reused from all groups)
+  const allPairs = groups.flatMap(g => g.pairs);
+
+  // ── Full-address mode layout ──────────────────────────────────────────────
+  // Layout: | Row# | FullAddress (raw) | Street | City | Area | PostalCode | CountryISO | Lat | Lon | Status | Geosource |
+  // The "before" column is ONE column spanning all address-component groups.
+
+  if (fullAddressMode && step === 'geocode') {
+    // Split groups into address-extraction group and info group
+    const addrGroup = groups.find(g => g.fullAddressMode);
+    const otherGroups = groups.filter(g => !g.fullAddressMode);
+    const addrPairs  = addrGroup?.pairs ?? [];
+    const otherPairs = otherGroups.flatMap(g => g.pairs);
+    const totalAfterCols = addrPairs.length + otherPairs.reduce((s, p) => s + (p.after ? 1 : 0), 0);
+
+    return (
+      <div className="flex flex-col h-full w-full min-w-0 bg-white">
+        <div className="overflow-auto flex-1 w-full relative custom-scrollbar">
+          <table className="w-max min-w-full text-left border-collapse isolate">
+            <thead className="sticky top-0 z-20 shadow-sm">
+
+              {/* Row 1: Group super-headers */}
+              <tr>
+                <th rowSpan={3}
+                  className="sticky left-0 z-30 bg-muted px-4 py-2 border-b border-r border-border/80 w-12 align-bottom shadow-[2px_0_5px_rgba(0,0,0,0.02)]" />
+
+                {/* "Full Address Input" spanning 1 column */}
+                <th
+                  colSpan={1}
+                  className="px-4 py-1.5 border-b border-r border-border/40 text-[10px] font-bold uppercase tracking-wider text-center bg-amber-50/80 text-amber-700"
+                >
+                  Full Address Input
+                </th>
+
+                {/* Arrow spacer */}
+                <th rowSpan={3}
+                  className="px-2 py-2 border-b border-border/30 text-muted-foreground/30 w-6 text-center align-middle bg-white/80">
+                  <ArrowRight className="w-3.5 h-3.5 inline-block opacity-40" />
+                </th>
+
+                {/* Extracted Address Components */}
+                {addrGroup && (
+                  <th
+                    colSpan={addrPairs.length}
+                    className={cn(
+                      'px-4 py-1.5 border-b border-r-2 border-r-border/60 text-[10px] font-bold uppercase tracking-wider text-center',
+                      stepBgColor, stepColor
+                    )}
+                  >
+                    <span className="flex items-center justify-center gap-1.5">
+                      <Unlink2 className="w-3 h-3 opacity-70" />
+                      {addrGroup.title}
+                    </span>
+                  </th>
+                )}
+
+                {/* Other groups (Geocoding Info) */}
+                {otherGroups.map((g, gIdx) => (
+                  <th key={gIdx}
+                    colSpan={g.pairs.reduce((s, p) => s + (p.after ? 1 : 0), 0)}
+                    className="px-4 py-1.5 border-b border-r-2 border-r-border/60 text-[10px] font-bold uppercase tracking-wider text-center bg-muted/60 text-muted-foreground"
+                  >
+                    {g.title}
+                  </th>
+                ))}
+              </tr>
+
+              {/* Row 2: Old / New labels */}
+              <tr>
+                {/* "Before" label under Full Address Input */}
+                <th className="bg-amber-50/80 px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-amber-700 text-center whitespace-nowrap">
+                  {fullAddressSrc ?? 'FullAddress'}
+                </th>
+
+                {/* Extracted address After labels */}
+                {addrPairs.map((pair, i) => (
+                  <th key={`addr-new-lbl-${i}`}
+                    className={cn(
+                      'px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-center whitespace-nowrap border-r border-border/30',
+                      stepBgColor, stepColor
+                    )}>
+                    Extracted
+                  </th>
+                ))}
+
+                {/* Other pairs labels */}
+                {otherPairs.map((pair, i) => (
+                  <th key={`other-lbl-${i}`}
+                    className="px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-center whitespace-nowrap bg-muted/30 text-muted-foreground border-r border-border/30">
+                    API
+                  </th>
+                ))}
+              </tr>
+
+              {/* Row 3: Column names */}
+              <tr>
+                {/* Full Address source col name */}
+                <th className="bg-white/95 px-3 py-2 border-b border-border/50 text-[10px] font-medium text-amber-600 max-w-[160px] truncate whitespace-nowrap border-r border-border/30"
+                  title={fullAddressSrc ?? 'FullAddress'}>
+                  {fullAddressSrc ?? 'FullAddress'}
+                </th>
+
+                {/* Extracted address canonical names */}
+                {addrPairs.map((pair, i) => (
+                  <th key={`addr-col-${i}`}
+                    className={cn(
+                      'bg-white/95 px-3 py-2 border-b border-border/50 text-[10px] font-bold max-w-[120px] truncate whitespace-nowrap border-r border-border/30',
+                      stepColor
+                    )}
+                    title={pair.after}>
+                    {pair.after}
+                  </th>
+                ))}
+
+                {/* Other col names */}
+                {otherPairs.map((pair, i) => (
+                  <th key={`other-col-${i}`}
+                    className="bg-white/95 px-3 py-2 border-b border-border/50 text-[10px] font-bold text-muted-foreground max-w-[130px] truncate whitespace-nowrap border-r-2 border-r-border/40"
+                    title={pair.after}>
+                    {pair.after}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            <tbody className="divide-y divide-border/40">
+              {data.rows.map((row, rowIdx) => {
+                const rawFull = fullAddressSrc ? row.before[fullAddressSrc] : null;
+                const isFailedGeocode = String(row.after['GeocodingStatus'] || '').toUpperCase() === 'FAILED';
+
+                return (
+                  <tr key={rowIdx} className={cn(
+                    'hover:bg-muted/30 transition-colors font-mono text-[11px]',
+                    isFailedGeocode && 'bg-rose-500/5 hover:bg-rose-500/10'
+                  )}>
+                    {/* Sticky Row # */}
+                    <td className="sticky left-0 z-10 bg-white/95 px-4 py-2 border-r border-border/80 text-muted-foreground/40 shadow-[2px_0_5px_rgba(0,0,0,0.02)] whitespace-nowrap">
+                      {rowIdx + 1}
+                    </td>
+
+                    {/* Raw full address */}
+                    <td className="px-3 py-2 max-w-[220px] bg-amber-50/30 border-r border-border/30"
+                      title={String(rawFull ?? '')}>
+                      <ValueCell val={rawFull} isOutput={false} />
+                    </td>
+
+                    {/* Arrow (visual separator, already in header) */}
+                    <td className="px-1 py-2 text-muted-foreground/20 text-center bg-white/80">
+                      <ArrowRight className="w-3 h-3 inline-block opacity-30" />
+                    </td>
+
+                    {/* Extracted address component cells */}
+                    {addrPairs.map((pair, i) => {
+                      const val = row.after[pair.after];
+                      return (
+                        <td key={`addr-${i}`}
+                          className="px-2 py-2 max-w-[160px] border-r border-border/20"
+                          title={String(val ?? '')}>
+                          <ValueCell
+                            val={val}
+                            isOutput={true}
+                            isChanged={val != null && String(val).trim() !== ''}
+                            isError={false}
+                          />
+                        </td>
+                      );
+                    })}
+
+                    {/* Other cells (Status, Geosource) */}
+                    {otherPairs.map((pair, i) => {
+                      const val = pair.after ? row.after[pair.after] : null;
+                      const isErrorCol = pair.after?.toLowerCase().includes('status') && isFailedGeocode;
+                      return (
+                        <td key={`other-${i}`}
+                          className="px-2 py-2 max-w-[160px] border-r border-border/20"
+                          title={String(val ?? '')}>
+                          <ValueCell val={val} isOutput={true} isChanged={false} isError={isErrorCol} />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <div className="bg-muted px-6 py-3 border-t border-border/80 text-[11px] text-muted-foreground flex items-center justify-between z-10 shrink-0">
+          <span>
+            Showing <strong className="text-foreground">{data.rows.length}</strong> of {data.total} row{data.total !== 1 ? 's' : ''} processed.
+          </span>
+          {data.total > data.rows.length && (
+            <span className="opacity-80">Only the first {data.rows.length} rows are shown.</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Standard (field-by-field) layout ─────────────────────────────────────
+
   return (
     <div className="flex flex-col h-full w-full min-w-0 bg-white">
-      {/* Table Wrapper strictly bounded */}
       <div className="overflow-auto flex-1 w-full relative custom-scrollbar">
         <table className="w-max min-w-full text-left border-collapse isolate">
           <thead className="sticky top-0 z-20 shadow-sm">
-            {/* Super Header (Groups) */}
+
+            {/* Row 1: Group headers */}
             <tr>
-              <th className="sticky left-0 z-30 bg-muted px-4 py-2 border-b border-r border-border/80 w-12 shadow-[2px_0_5px_rgba(0,0,0,0.02)]"></th>
-              {columnGroups.map((group, idx) => (
-                <th key={idx} colSpan={group.before.length + group.after.length + (group.before.length && group.after.length ? 1 : 0)} 
+              <th
+                rowSpan={3}
+                className="sticky left-0 z-30 bg-muted px-4 py-2 border-b border-r border-border/80 w-12 align-bottom shadow-[2px_0_5px_rgba(0,0,0,0.02)]"
+              />
+              {groups.map((group, gIdx) => {
+                const colSpan = group.pairs.reduce(
+                  (acc, p) => acc + (p.before ? 1 : 0) + (p.after ? 1 : 0),
+                  0
+                );
+                return (
+                  <th key={gIdx} colSpan={colSpan}
                     className={cn(
-                      "px-4 py-2 border-b border-r-2 border-r-border/60 text-[11px] font-bold uppercase tracking-wider text-center relative",
-                      idx % 2 === 1 ? stepBgColor : "bg-muted/50 text-muted-foreground"
+                      'px-4 py-1.5 border-b border-r-2 border-r-border/60 text-[10px] font-bold uppercase tracking-wider text-center',
+                      gIdx % 2 === 0 ? 'bg-muted/60 text-muted-foreground' : `${stepBgColor} ${stepColor}`
                     )}>
-                  <span className={cn(idx % 2 === 1 && stepColor)}>{group.title}</span>
-                </th>
-              ))}
+                    {group.title}
+                  </th>
+                );
+              })}
             </tr>
-            {/* Sub Header (Actual Columns) */}
+
+            {/* Row 2: Old / New labels per pair */}
             <tr>
-              <th className="sticky left-0 z-30 bg-muted/95 px-4 py-2 border-b border-r border-border/80 text-[10px] font-semibold text-muted-foreground uppercase shadow-[2px_0_5px_rgba(0,0,0,0.02)] whitespace-nowrap">Row #</th>
-              {columnGroups.map((group, groupIdx) => {
-                const els = [];
-                const hasAfter = group.after.length > 0;
-                
-                // Before Columns
-                group.before.forEach((col, i) => {
-                  const applyBorder = !hasAfter && (i === group.before.length - 1);
-                  els.push(
-                    <th key={`b-${col}`} className={cn(
-                      "bg-white/95 backdrop-blur-md px-3 py-2 border-b border-border/50 text-[10px] font-semibold text-muted-foreground/80 uppercase max-w-[120px] truncate",
-                      applyBorder && "border-r-2 border-r-border/60"
-                    )} title={col}>
-                      {col}
-                    </th>
-                  );
-                });
-                
-                // Separator icon 
-                if (group.before.length > 0 && group.after.length > 0) {
-                  els.push(
-                    <th key={`sep-${groupIdx}`} className="bg-white/95 px-1 py-2 border-b border-border/50 text-muted-foreground/30 w-6 text-center">
+              {allPairs.map((pair, pIdx) => {
+                const cols = [];
+                if (pair.before) {
+                  cols.push(
+                    <th key={`${pIdx}-old-lbl`}
+                      className="bg-amber-50/80 px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-amber-700 text-center whitespace-nowrap">
+                      Old
                     </th>
                   );
                 }
-
-                // After Columns
-                group.after.forEach((col, i) => {
-                  const applyBorder = i === group.after.length - 1;
-                  els.push(
-                    <th key={`a-${col}`} className={cn(
-                      "bg-white/95 backdrop-blur-md px-3 py-2 border-b border-border/50 text-[10px] font-bold uppercase max-w-[140px] truncate",
-                      stepColor,
-                      applyBorder && "border-r-2 border-r-border/60"
-                    )} title={col}>
-                      {col}
+                if (pair.after) {
+                  cols.push(
+                    <th key={`${pIdx}-new-lbl`}
+                      className={cn(
+                        'px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-center whitespace-nowrap border-r border-border/30',
+                        stepBgColor, stepColor
+                      )}>
+                      New
                     </th>
                   );
-                });
+                }
+                return cols;
+              })}
+            </tr>
 
-                return els;
+            {/* Row 3: Actual column names */}
+            <tr>
+              {allPairs.map((pair, pIdx) => {
+                const cols = [];
+                if (pair.before) {
+                  cols.push(
+                    <th key={`${pIdx}-old-col`}
+                      className="bg-white/95 backdrop-blur-md px-3 py-2 border-b border-border/50 text-[10px] font-medium text-muted-foreground/70 max-w-[130px] truncate whitespace-nowrap"
+                      title={pair.before}>
+                      {pair.before}
+                    </th>
+                  );
+                }
+                if (pair.after) {
+                  cols.push(
+                    <th key={`${pIdx}-new-col`}
+                      className={cn(
+                        'bg-white/95 backdrop-blur-md px-3 py-2 border-b border-border/50 text-[10px] font-bold max-w-[140px] truncate whitespace-nowrap border-r-2 border-r-border/40',
+                        stepColor
+                      )}
+                      title={pair.after}>
+                      {pair.after}
+                    </th>
+                  );
+                }
+                return cols;
               })}
             </tr>
           </thead>
+
           <tbody className="divide-y divide-border/40">
-            {data.rows.map((row, i) => {
-              const isFailedGeocode = step === 'geocode' && String(row.after['GeocodingStatus'] || '').toUpperCase() === 'FAILED';
+            {data.rows.map((row, rowIdx) => {
+              const isFailedGeocode = step === 'geocode' &&
+                String(row.after['GeocodingStatus'] || '').toUpperCase() === 'FAILED';
 
               return (
-                <tr key={i} className={cn(
-                  "hover:bg-muted/30 transition-colors font-mono text-[11px]",
-                  isFailedGeocode && "bg-rose-500/5 hover:bg-rose-500/10"
+                <tr key={rowIdx} className={cn(
+                  'hover:bg-muted/30 transition-colors font-mono text-[11px]',
+                  isFailedGeocode && 'bg-rose-500/5 hover:bg-rose-500/10'
                 )}>
-                  {/* Sticky Row ID */}
                   <td className="sticky left-0 z-10 bg-white/95 px-4 py-2 border-r border-border/80 text-muted-foreground/40 shadow-[2px_0_5px_rgba(0,0,0,0.02)] whitespace-nowrap">
-                     {row.original_row_idx !== undefined ? row.original_row_idx + 1 : i + 1}
+                    {rowIdx + 1}
                   </td>
-                  
-                  {columnGroups.map((group, groupIdx) => {
-                    const els = [];
-                    
-                    const hasAfter = group.after.length > 0;
-                    
-                    // Before Values
-                    group.before.forEach((col, i) => {
-                      const applyBorder = !hasAfter && (i === group.before.length - 1);
-                      els.push(
-                        <td key={`b-${col}`} className={cn("px-3 py-2 max-w-[180px]", applyBorder && "border-r-2 border-r-border/60")} title={String(row.before[col] ?? '')}>
-                          <ValueCell val={row.before[col]} isOutput={false} />
-                        </td>
-                      );
-                    });
 
-                    // Separator
-                    if (group.before.length > 0 && group.after.length > 0) {
-                      els.push(
-                        <td key={`sep-${groupIdx}`} className="px-1 py-1.5 text-muted-foreground/20 text-center align-middle">
-                          <ChevronRight className="w-3.5 h-3.5 inline-block" />
+                  {allPairs.map((pair, pIdx) => {
+                    const cells = [];
+
+                    if (pair.before) {
+                      const val = row.before[pair.before];
+                      cells.push(
+                        <td key={`${pIdx}-old`}
+                          className="px-3 py-2 max-w-[180px] bg-amber-50/30"
+                          title={String(val ?? '')}>
+                          <ValueCell val={val} isOutput={false} />
                         </td>
                       );
                     }
 
-                    // After Values (Computed -> Pill format)
-                    group.after.forEach((col, i) => {
-                      const val = row.after[col];
-                      const beforeVal = group.before.includes(col) ? row.before[col] : null;
-                      const isChanged = beforeVal !== val && val !== null;
-                      const isNew = val != null && String(val).trim() !== '' && !group.before.includes(col);
-                      const isErrorCol = col.toLowerCase().includes('status') && isFailedGeocode;
-                      const applyBorder = i === group.after.length - 1;
+                    if (pair.after) {
+                      const val = row.after[pair.after];
+                      const oldVal = pair.before ? row.before[pair.before] : undefined;
+                      const isChanged = oldVal !== undefined && oldVal !== val && val != null;
+                      const isNew = pair.before == null && val != null && String(val).trim() !== '';
+                      const isErrorCol = pair.after.toLowerCase().includes('status') && isFailedGeocode;
 
-                      els.push(
-                        <td key={`a-${col}`} className={cn("px-2 py-2 max-w-[180px]", applyBorder && "border-r-2 border-r-border/60")} title={String(val ?? '')}>
-                          <ValueCell val={val} isChanged={isChanged || isNew} isError={isErrorCol} isOutput={true} />
+                      cells.push(
+                        <td key={`${pIdx}-new`}
+                          className="px-2 py-2 max-w-[200px] border-r border-border/20"
+                          title={String(val ?? '')}>
+                          <ValueCell
+                            val={val}
+                            isOutput={true}
+                            isChanged={isChanged || isNew}
+                            isError={isErrorCol}
+                          />
                         </td>
                       );
-                    });
+                    }
 
-                    return els;
+                    return cells;
                   })}
                 </tr>
               );
@@ -294,10 +525,12 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
           </tbody>
         </table>
       </div>
-      
-      {/* Table Footer */}
+
+      {/* Footer */}
       <div className="bg-muted px-6 py-3 border-t border-border/80 text-[11px] text-muted-foreground flex items-center justify-between z-10 shrink-0">
-        <span>Showing <strong className="text-foreground">{data.rows.length}</strong> of {data.total} row{data.total !== 1 ? 's' : ''} processed.</span>
+        <span>
+          Showing <strong className="text-foreground">{data.rows.length}</strong> of {data.total} row{data.total !== 1 ? 's' : ''} processed.
+        </span>
         {data.total > data.rows.length && (
           <span className="opacity-80">Only the first {data.rows.length} rows are shown for performance.</span>
         )}
