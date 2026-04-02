@@ -12,9 +12,9 @@ import { toast } from "sonner";
 import { ArrowRight, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const AIR_REQUIRED = ["ContractID", "LocationID", "Street", "OccupancyCode", "ConstructionCode", "BuildingValue"];
+const AIR_REQUIRED = ["Street", "OccupancyCode", "ConstructionCode", "BuildingValue"];
 const ALL_CANONICALS = [
-  "ContractID", "LocationID", "LocationName", "FullAddress", "Street", "City",
+  "PolicyID", "InsuredName", "LocationID", "LocationName", "FullAddress", "Street", "City",
   "Area", "PostalCode", "CountryISO", "Latitude", "Longitude",
   "OccupancyCodeType", "OccupancyCode", "ConstructionCodeType", "ConstructionCode",
   "RiskCount", "NumberOfStories", "GrossArea", "YearBuilt", "YearRetrofitted",

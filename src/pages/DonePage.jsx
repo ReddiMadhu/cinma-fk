@@ -123,12 +123,10 @@ export default function DonePage() {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 gap-4 mb-8">
         {[
           { icon: BarChart3, label: 'Total Rows', value: totalRows, color: 'text-primary' },
-          { icon: CheckCircle2, label: 'Clean Rows', value: cleanRows, color: 'text-green-400' },
-          { icon: AlertCircle, label: 'Flags', value: totalFlags, color: 'text-amber-400' },
-          { icon: TrendingUp, label: 'Data Quality', value: cleanPct !== '—' ? `${cleanPct}%` : '—', color: 'text-cyan-400' },
+          { icon: CheckCircle2, label: 'Processed Successfully', value: totalRows, color: 'text-green-400' },
         ].map(({ icon: Icon, label, value, color }) => (
           <div key={label} className="glass rounded-2xl p-5 flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-muted">
@@ -165,33 +163,7 @@ export default function DonePage() {
           </div>
         )}
 
-        {/* Flag distribution */}
-        {pieData.length > 0 && (
-          <div className="glass rounded-2xl p-5">
-            <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-amber-400" /> Flag Distribution
-            </h3>
-            <ResponsiveContainer width="100%" height={160}>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={45}
-                  outerRadius={70}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {pieData.map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <RTooltip contentStyle={{ backgroundColor: 'oklch(0.14 0.015 265)', border: '1px solid oklch(0.25 0.02 265 / 60%)', borderRadius: '8px', fontSize: '12px' }} />
-                <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: '11px', color: 'oklch(0.60 0.01 265)' }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+
 
         {/* Occ mapping methods */}
         {mapBar.length > 0 && (
@@ -210,20 +182,7 @@ export default function DonePage() {
           </div>
         )}
 
-        {/* Quality summary */}
-        <div className="glass rounded-2xl p-5 flex flex-col justify-center items-center gap-3">
-          <div className="w-24 h-24 rounded-full border-4 border-primary/30 flex items-center justify-center" style={{
-            background: `conic-gradient(oklch(0.65 0.22 270) ${cleanPct !== '—' ? cleanPct : 0}%, transparent 0%)`
-          }}>
-            <div className="w-16 h-16 rounded-full bg-background flex items-center justify-center">
-              <span className="text-lg font-bold gradient-text">{cleanPct !== '—' ? `${cleanPct}%` : '—'}</span>
-            </div>
-          </div>
-          <div className="text-center">
-            <p className="font-semibold text-sm">Data Quality Score</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Rows without any flags</p>
-          </div>
-        </div>
+
       </div>
 
       {/* Download cards */}

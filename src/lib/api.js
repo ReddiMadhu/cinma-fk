@@ -75,6 +75,10 @@ export async function runNormalize(uploadId) {
   return request('POST', `/normalize/${uploadId}`);
 }
 
+export async function getSessionDiff(uploadId, step) {
+  return request('GET', `/session-diff/${uploadId}`, { params: { step } });
+}
+
 // ── Review & Corrections ───────────────────────────────────────────────────────
 export async function getReview(uploadId) {
   return request('GET', `/review/${uploadId}`);
@@ -104,4 +108,26 @@ export async function deleteSession(uploadId) {
 
 export async function healthCheck() {
   return request('GET', '/health');
+}
+
+// ── Mapping Memory ─────────────────────────────────────────────────────────────
+/**
+ * Fetch all learned column mapping memories.
+ * @param {string|null} targetFormat  'AIR' | 'RMS' | null (all)
+ */
+export async function getMappingMemory(targetFormat = null) {
+  const params = targetFormat ? { target_format: targetFormat } : {};
+  return request('GET', '/mapping-memory', { params });
+}
+
+/**
+ * Forget a single learned mapping so the fuzzy/LLM pipeline takes over again.
+ * @param {string} sourceCol    The original source column name (not normalized)
+ * @param {string} targetFormat 'AIR' | 'RMS'
+ */
+export async function forgetMapping(sourceCol, targetFormat) {
+  const encoded = encodeURIComponent(sourceCol);
+  return request('DELETE', `/mapping-memory/${encoded}`, {
+    params: { target_format: targetFormat },
+  });
 }

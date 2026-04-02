@@ -5,7 +5,7 @@ const STEPS = [
   { label: 'Upload', key: 'upload' },
   { label: 'Map Columns', key: 'map' },
   { label: 'Run Pipeline', key: 'run' },
-  { label: 'Review', key: 'review' },
+  // { label: 'Review', key: 'review' }, // Disabled temporarily
   { label: 'Export', key: 'done' },
 ];
 

@@ -32,6 +32,8 @@ export default function UploadPage() {
     occ_confidence_threshold: 0.5,
     const_confidence_threshold: 0.5,
     line_of_business: '',
+    policy_id: '',
+    insured_name: '',
   });
 
   const uploadMutation = useMutation({
@@ -189,28 +191,51 @@ export default function UploadPage() {
             </span>
           </AccordionTrigger>
           <AccordionContent className="px-5 pb-5">
-            <div className="mb-5">
-              <label className="text-xs font-medium text-foreground/80 block mb-1.5">
-                Global Line of Business
-              </label>
-              <Select
-                value={localRules.line_of_business || 'none'}
-                onValueChange={(v) => setLocalRules(r => ({ ...r, line_of_business: v === 'none' ? '' : v }))}
-              >
-                <SelectTrigger className="w-full text-xs h-9">
-                  <SelectValue placeholder="Select Line of Business..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">— None (Mapped from file) —</SelectItem>
-                  <SelectItem value="Commercial">Commercial</SelectItem>
-                  <SelectItem value="Residential">Residential</SelectItem>
-                  <SelectItem value="Industrial">Industrial</SelectItem>
-                  <SelectItem value="Agriculture">Agriculture</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Apply this Line of Business to all rows during normalization if no source column is mapped
-              </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+              <div>
+                <label className="text-xs font-medium text-foreground/80 block mb-1.5">
+                  Global Policy ID / Account Num
+                </label>
+                <input
+                  type="text"
+                  value={localRules.policy_id}
+                  onChange={(e) => setLocalRules(r => ({ ...r, policy_id: e.target.value }))}
+                  className="w-full text-xs h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  placeholder="e.g. POL-12345"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-foreground/80 block mb-1.5">
+                  Global Insured Name (AIR only)
+                </label>
+                <input
+                  type="text"
+                  value={localRules.insured_name}
+                  onChange={(e) => setLocalRules(r => ({ ...r, insured_name: e.target.value }))}
+                  className="w-full text-xs h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  placeholder="e.g. Acme Corp"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-foreground/80 block mb-1.5">
+                  Global Line of Business
+                </label>
+                <Select
+                  value={localRules.line_of_business || 'none'}
+                  onValueChange={(v) => setLocalRules(r => ({ ...r, line_of_business: v === 'none' ? '' : v }))}
+                >
+                  <SelectTrigger className="w-full text-xs h-9">
+                    <SelectValue placeholder="Select LOB..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— None —</SelectItem>
+                    <SelectItem value="Commercial">Commercial</SelectItem>
+                    <SelectItem value="Residential">Residential</SelectItem>
+                    <SelectItem value="Industrial">Industrial</SelectItem>
+                    <SelectItem value="Agriculture">Agriculture</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             
             <div className="grid grid-cols-2 gap-4">

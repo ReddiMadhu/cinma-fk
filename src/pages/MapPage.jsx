@@ -1,11 +1,11 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-  ChevronRight, AlertCircle, CheckCircle2, Loader2, Info
+  ChevronRight, AlertCircle, CheckCircle2, Loader2, Info, Brain, X
 } from 'lucide-react';
-import { suggestColumns, confirmColumns } from '@/lib/api';
+import { suggestColumns, confirmColumns, forgetMapping } from '@/lib/api';
 import { useSessionStore } from '@/store/useSessionStore';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,7 +36,7 @@ const NONE_VALUE = '__none__';
 
 // AIR + RMS canonical fields for the dropdown options
 const AIR_FIELDS = [
-  'ContractID','LocationID','LocationName','FullAddress','Street','City','Area',
+  'PolicyID','InsuredName','LocationID','LocationName','FullAddress','Street','City','Area',
   'PostalCode','CountryISO','Latitude','Longitude','OccupancyCodeType','OccupancyCode',
   'ConstructionCodeType','ConstructionCode','RiskCount','NumberOfStories','GrossArea',
   'YearBuilt','YearRetrofitted','BuildingValue','ContentsValue','TimeElementValue',
@@ -55,6 +55,7 @@ const RMS_FIELDS = [
 export default function MapPage() {
   const { id: uploadId } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { setColumnMap, setUploadId, targetFormat, uploadMeta } = useSessionStore();
   const [localMap, setLocalMap] = useState({});   // { sourceCol: canonicalField | null }
 
@@ -137,6 +138,25 @@ export default function MapPage() {
     onError: (err) => toast.error(`Confirm failed: ${err.message}`),
   });
 
+  // ── Forget memory mutation ─────────────────────────────────────────────────
+  const forgetMutation = useMutation({
+    mutationFn: ({ sourceCol }) => forgetMapping(sourceCol, targetFormat),
+    onSuccess: (_, { sourceCol }) => {
+      toast.success(`Memory cleared for "${sourceCol}" — re-running AI mapping…`);
+      // Invalidate so the page re-fetches fresh suggestions (fuzzy/LLM will take over)
+      queryClient.invalidateQueries({ queryKey: ['suggest-columns', uploadId] });
+    },
+    onError: (err) => toast.error(`Forget failed: ${err.message}`),
+  });
+
+  // ── Count memory-backed columns ────────────────────────────────────────────
+  const memoryCount = useMemo(() => {
+    if (!data?.suggestions) return 0;
+    return Object.values(data.suggestions).filter(
+      (sugs) => sugs?.[0]?.method === 'memory'
+    ).length;
+  }, [data]);
+
   // ── Derived stats ──────────────────────────────────────────────────────────
   const sourceColumns = data?.suggestions ? Object.keys(data.suggestions) : [];
   const mappedCount = Object.values(localMap).filter(Boolean).length;
@@ -185,6 +205,29 @@ export default function MapPage() {
       <div className="mb-8 flex justify-center">
         <StepIndicator currentStep="map" />
       </div>
+
+      {/* Memory info chip */}
+      {!isLoading && memoryCount > 0 && (
+        <div className="mb-5 flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-violet-500/10 border border-violet-500/25 w-fit">
+          <Brain className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+          <span className="text-xs text-violet-300">
+            <strong className="text-violet-200">{memoryCount}</strong> column{memoryCount > 1 ? 's' : ''} auto-mapped from learned memory
+          </span>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="w-3 h-3 text-violet-400/60 cursor-default" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-56">
+                <p className="text-xs">
+                  These mappings were learned from previous sessions you confirmed.
+                  Click the × on any row to forget a mapping and let AI re-suggest.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      )}
 
       {/* Duplicate conflict banner */}
       {!isLoading && duplicateCanonicals.size > 0 && (
@@ -337,9 +380,21 @@ export default function MapPage() {
                       )}
                     </div>
 
-                    {/* Confidence bar */}
+                    {/* Confidence bar — or Memory badge */}
                     <div className="col-span-2">
-                      {topSug ? (
+                      {topSug?.method === 'memory' ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-300 text-[10px] font-semibold">
+                            <Brain className="w-2.5 h-2.5" />
+                            Memory
+                          </span>
+                          {topSug.count > 1 && (
+                            <span className="text-[9px] text-muted-foreground/50">
+                              ×{topSug.count}
+                            </span>
+                          )}
+                        </div>
+                      ) : topSug ? (
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
@@ -371,6 +426,7 @@ export default function MapPage() {
                     </div>
 
                     {/* Status icon — rose if duplicate, amber if unmapped, green if ok */}
+                    {/* If memory-backed: also show a Forget (×) button */}
                     <div className="col-span-1 flex justify-center items-center gap-1">
                       {isDuplicate ? (
                         <AlertCircle className="w-4 h-4 text-rose-400" />
@@ -378,6 +434,25 @@ export default function MapPage() {
                         <CheckCircle2 className="w-4 h-4 text-green-400" />
                       ) : (
                         <AlertCircle className="w-4 h-4 text-amber-400" />
+                      )}
+                      {topSug?.method === 'memory' && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => forgetMutation.mutate({ sourceCol: col })}
+                                disabled={forgetMutation.isPending}
+                                className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full text-violet-400/60 hover:text-rose-400 hover:bg-rose-500/15 transition-colors"
+                                aria-label={`Forget memory for ${col}`}
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="text-xs">
+                              Forget this memory — let AI re-suggest
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )}
                     </div>
                   </div>
