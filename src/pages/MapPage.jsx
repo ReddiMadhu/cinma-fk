@@ -39,7 +39,7 @@ const AIR_FIELDS = [
   'PolicyID','InsuredName','LocationID','LocationName','FullAddress','Street','City','Area',
   'PostalCode','CountryISO','Latitude','Longitude','OccupancyCodeType','OccupancyCode',
   'ConstructionCodeType','ConstructionCode','RiskCount','NumberOfStories','GrossArea',
-  'YearBuilt','YearRetrofitted','BuildingValue','ContentsValue','TimeElementValue',
+  'YearBuilt','YearRetrofitted','TIV','BuildingValue','ContentsValue','TimeElementValue',
   'Currency','LineOfBusiness','SprinklerSystem','RoofGeometry','FoundationType',
   'WallSiding','SoftStory','WallType',
 ];
@@ -49,7 +49,7 @@ const RMS_FIELDS = [
   'CNTRYCODE','Latitude','Longitude','BLDGSCHEME','BLDGCLASS','OCCSCHEME','OCCTYPE',
   'NUMBLDGS','NUMSTORIES','FLOORAREA','YEARBUILT','YEARUPGRAD','SPRINKLER',
   'ROOFGEOM','FOUNDATION','CLADDING','SOFTSTORY','WALLTYPE',
-  'EQCV1VAL','EQCV2VAL','EQCV3VAL','WSCV1VAL','WSCV2VAL','WSCV3VAL',
+  'TIV','EQCV1VAL','EQCV2VAL','EQCV3VAL','WSCV1VAL','WSCV2VAL','WSCV3VAL',
 ];
 
 export default function MapPage() {

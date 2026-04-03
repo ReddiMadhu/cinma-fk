@@ -93,6 +93,10 @@ export async function downloadOutput(uploadId, format = 'xlsx') {
   return request('GET', `/download/${uploadId}`, { params: { format } });
 }
 
+export async function getSlipSummary(uploadId) {
+  return request('GET', `/slip-summary/${uploadId}`);
+}
+
 // ── Session Management ─────────────────────────────────────────────────────────
 export async function getSession(uploadId) {
   return request('GET', `/session/${uploadId}`);
