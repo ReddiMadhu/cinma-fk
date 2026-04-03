@@ -27,7 +27,7 @@ const STEPS = [
   {
     key: 'map-codes',
     label: 'Map Occupancy & Const',
-    runningLabel: 'Mapping construction and occupancy codes',
+    runningLabel: 'Mapping construction & occupancy',
     description: '4-stage LLM mapping',
     icon: Tag,
     color: 'text-violet-500',
@@ -92,15 +92,15 @@ function StepCard({ step, status, result, onRun, disabled, onClick, isActive }) 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <div>
-              <h3 className="font-semibold text-sm leading-tight text-foreground truncate">
+            <div className="min-w-0">
+              <h3 className="font-semibold text-sm leading-tight text-foreground flex items-center min-w-0">
                 {isRunning ? (
-                  <span className="flex items-center">
-                    {step.runningLabel}
+                  <>
+                    <span className="truncate">{step.runningLabel}</span>
                     <AnimatedDots />
-                  </span>
+                  </>
                 ) : (
-                  step.label
+                  <span className="truncate">{step.label}</span>
                 )}
               </h3>
               <p className="text-[10px] text-muted-foreground mt-1 line-clamp-1">{step.description}</p>

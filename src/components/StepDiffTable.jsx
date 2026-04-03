@@ -3,7 +3,7 @@ import { getSessionDiff } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, ArrowRight, Unlink2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 // ── Group pairs into visual sections ─────────────────────────────────────────
 
@@ -135,6 +135,8 @@ function FullAddressGroupHeader({ group, stepColor, stepBgColor }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, stepBorderColor }) {
+  const [viewMode, setViewMode] = useState('cleaned');
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['session-diff', uploadId, step],
     queryFn: () => getSessionDiff(uploadId, step),
@@ -183,6 +185,34 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
   // Flat ordered pairs for data rows (reused from all groups)
   const allPairs = groups.flatMap(g => g.pairs);
 
+  const toolbar = (
+    <div className="bg-muted/30 px-6 py-2.5 border-b border-border/60 flex items-center gap-4 shrink-0 transition-opacity duration-300">
+      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">View Columns:</span>
+      <label className="flex items-center gap-1.5 cursor-pointer text-[12px] font-medium transition-colors hover:text-foreground text-foreground">
+        <input 
+          type="radio" 
+          name={`viewMode-${step || 'default'}`}
+          value="cleaned" 
+          checked={viewMode === 'cleaned'} 
+          onChange={() => setViewMode('cleaned')} 
+          className="text-primary focus:ring-primary h-3.5 w-3.5 accent-primary cursor-pointer"
+        />
+        Cleaned Columns Only
+      </label>
+      <label className="flex items-center gap-1.5 cursor-pointer text-[12px] font-medium transition-colors hover:text-foreground text-muted-foreground hover:text-foreground/80">
+        <input 
+          type="radio" 
+          name={`viewMode-${step || 'default'}`}
+          value="combined" 
+          checked={viewMode === 'combined'} 
+          onChange={() => setViewMode('combined')}
+          className="text-primary focus:ring-primary h-3.5 w-3.5 accent-primary cursor-pointer"
+        />
+        Original & Cleaned
+      </label>
+    </div>
+  );
+
   // ── Full-address mode layout ──────────────────────────────────────────────
   // Layout: | Row# | FullAddress (raw) | Street | City | Area | PostalCode | CountryISO | Lat | Lon | Status | Geosource |
   // The "before" column is ONE column spanning all address-component groups.
@@ -197,28 +227,33 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
 
     return (
       <div className="flex flex-col h-full w-full min-w-0 bg-white">
+        {toolbar}
         <div className="overflow-auto flex-1 w-full relative custom-scrollbar">
           <table className="w-max min-w-full text-left border-collapse isolate">
             <thead className="sticky top-0 z-20 shadow-sm">
 
               {/* Row 1: Group super-headers */}
               <tr>
-                <th rowSpan={3}
+                <th rowSpan={viewMode === 'combined' ? 3 : 2}
                   className="sticky left-0 z-30 bg-muted px-4 py-2 border-b border-r border-border/80 w-12 align-bottom shadow-[2px_0_5px_rgba(0,0,0,0.02)]" />
 
                 {/* "Full Address Input" spanning 1 column */}
-                <th
-                  colSpan={1}
-                  className="px-4 py-1.5 border-b border-r border-border/40 text-[10px] font-bold uppercase tracking-wider text-center bg-amber-50/80 text-amber-700"
-                >
-                  Full Address Input
-                </th>
+                {viewMode === 'combined' && (
+                  <th
+                    colSpan={1}
+                    className="px-4 py-1.5 border-b border-r border-border/40 text-[10px] font-bold uppercase tracking-wider text-center bg-amber-50/80 text-amber-700"
+                  >
+                    Original Address Input
+                  </th>
+                )}
 
                 {/* Arrow spacer */}
-                <th rowSpan={3}
-                  className="px-2 py-2 border-b border-border/30 text-muted-foreground/30 w-6 text-center align-middle bg-white/80">
-                  <ArrowRight className="w-3.5 h-3.5 inline-block opacity-40" />
-                </th>
+                {viewMode === 'combined' && (
+                  <th rowSpan={3}
+                    className="px-2 py-2 border-b border-border/30 text-muted-foreground/30 w-6 text-center align-middle bg-white/80">
+                    <ArrowRight className="w-3.5 h-3.5 inline-block opacity-40" />
+                  </th>
+                )}
 
                 {/* Extracted Address Components */}
                 {addrGroup && (
@@ -248,11 +283,12 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
               </tr>
 
               {/* Row 2: Old / New labels */}
-              <tr>
-                {/* "Before" label under Full Address Input */}
-                <th className="bg-amber-50/80 px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-amber-700 text-center whitespace-nowrap">
-                  {fullAddressSrc ?? 'FullAddress'}
-                </th>
+              {viewMode === 'combined' && (
+                <tr>
+                  {/* "Before" label under Full Address Input */}
+                  <th className="bg-amber-50/80 px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-amber-700 text-center whitespace-nowrap">
+                    {fullAddressSrc ?? 'FullAddress'}
+                  </th>
 
                 {/* Extracted address After labels */}
                 {addrPairs.map((pair, i) => (
@@ -273,14 +309,17 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
                   </th>
                 ))}
               </tr>
+              )}
 
               {/* Row 3: Column names */}
               <tr>
                 {/* Full Address source col name */}
-                <th className="bg-white/95 px-3 py-2 border-b border-border/50 text-[10px] font-medium text-amber-600 max-w-[160px] truncate whitespace-nowrap border-r border-border/30"
-                  title={fullAddressSrc ?? 'FullAddress'}>
-                  {fullAddressSrc ?? 'FullAddress'}
-                </th>
+                {viewMode === 'combined' && (
+                  <th className="bg-white/95 px-3 py-2 border-b border-border/50 text-[10px] font-medium text-amber-600 max-w-[160px] truncate whitespace-nowrap border-r border-border/30"
+                    title={fullAddressSrc ?? 'FullAddress'}>
+                    {fullAddressSrc ?? 'FullAddress'}
+                  </th>
+                )}
 
                 {/* Extracted address canonical names */}
                 {addrPairs.map((pair, i) => (
@@ -321,15 +360,19 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
                     </td>
 
                     {/* Raw full address */}
-                    <td className="px-3 py-2 max-w-[220px] bg-amber-50/30 border-r border-border/30"
-                      title={String(rawFull ?? '')}>
-                      <ValueCell val={rawFull} isOutput={false} />
-                    </td>
+                    {viewMode === 'combined' && (
+                      <td className="px-3 py-2 max-w-[220px] bg-amber-50/30 border-r border-border/30"
+                        title={String(rawFull ?? '')}>
+                        <ValueCell val={rawFull} isOutput={false} />
+                      </td>
+                    )}
 
                     {/* Arrow (visual separator, already in header) */}
-                    <td className="px-1 py-2 text-muted-foreground/20 text-center bg-white/80">
-                      <ArrowRight className="w-3 h-3 inline-block opacity-30" />
-                    </td>
+                    {viewMode === 'combined' && (
+                      <td className="px-1 py-2 text-muted-foreground/20 text-center bg-white/80">
+                        <ArrowRight className="w-3 h-3 inline-block opacity-30" />
+                      </td>
+                    )}
 
                     {/* Extracted address component cells */}
                     {addrPairs.map((pair, i) => {
@@ -384,6 +427,7 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
 
   return (
     <div className="flex flex-col h-full w-full min-w-0 bg-white">
+      {toolbar}
       <div className="overflow-auto flex-1 w-full relative custom-scrollbar">
         <table className="w-max min-w-full text-left border-collapse isolate">
           <thead className="sticky top-0 z-20 shadow-sm">
@@ -391,14 +435,15 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
             {/* Row 1: Group headers */}
             <tr>
               <th
-                rowSpan={3}
+                rowSpan={viewMode === 'combined' ? 3 : 2}
                 className="sticky left-0 z-30 bg-muted px-4 py-2 border-b border-r border-border/80 w-12 align-bottom shadow-[2px_0_5px_rgba(0,0,0,0.02)]"
               />
               {groups.map((group, gIdx) => {
                 const colSpan = group.pairs.reduce(
-                  (acc, p) => acc + (p.before ? 1 : 0) + (p.after ? 1 : 0),
+                  (acc, p) => acc + (p.before && viewMode === 'combined' ? 1 : 0) + (p.after ? 1 : 0),
                   0
                 );
+                if (colSpan === 0) return null;
                 return (
                   <th key={gIdx} colSpan={colSpan}
                     className={cn(
@@ -412,37 +457,39 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
             </tr>
 
             {/* Row 2: Old / New labels per pair */}
-            <tr>
-              {allPairs.map((pair, pIdx) => {
-                const cols = [];
-                if (pair.before) {
-                  cols.push(
-                    <th key={`${pIdx}-old-lbl`}
-                      className="bg-amber-50/80 px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-amber-700 text-center whitespace-nowrap">
-                      Old
-                    </th>
-                  );
-                }
-                if (pair.after) {
-                  cols.push(
-                    <th key={`${pIdx}-new-lbl`}
-                      className={cn(
-                        'px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-center whitespace-nowrap border-r border-border/30',
-                        stepBgColor, stepColor
-                      )}>
-                      New
-                    </th>
-                  );
-                }
-                return cols;
-              })}
-            </tr>
+            {viewMode === 'combined' && (
+              <tr>
+                {allPairs.map((pair, pIdx) => {
+                  const cols = [];
+                  if (pair.before) {
+                    cols.push(
+                      <th key={`${pIdx}-old-lbl`}
+                        className="bg-amber-50/80 px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-amber-700 text-center whitespace-nowrap">
+                        Original
+                      </th>
+                    );
+                  }
+                  if (pair.after) {
+                    cols.push(
+                      <th key={`${pIdx}-new-lbl`}
+                        className={cn(
+                          'px-3 py-1 border-b border-border/40 text-[9px] font-semibold uppercase tracking-wider text-center whitespace-nowrap border-r border-border/30',
+                          stepBgColor, stepColor
+                        )}>
+                        Cleaned
+                      </th>
+                    );
+                  }
+                  return cols;
+                })}
+              </tr>
+            )}
 
             {/* Row 3: Actual column names */}
             <tr>
               {allPairs.map((pair, pIdx) => {
                 const cols = [];
-                if (pair.before) {
+                if (pair.before && viewMode === 'combined') {
                   cols.push(
                     <th key={`${pIdx}-old-col`}
                       className="bg-white/95 backdrop-blur-md px-3 py-2 border-b border-border/50 text-[10px] font-medium text-muted-foreground/70 max-w-[130px] truncate whitespace-nowrap"
@@ -485,7 +532,7 @@ export default function StepDiffTable({ uploadId, step, stepColor, stepBgColor, 
                   {allPairs.map((pair, pIdx) => {
                     const cells = [];
 
-                    if (pair.before) {
+                    if (pair.before && viewMode === 'combined') {
                       const val = row.before[pair.before];
                       cells.push(
                         <td key={`${pIdx}-old`}
