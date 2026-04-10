@@ -78,18 +78,18 @@ function TotalRow({ cells }) {
   );
 }
 
-function DownloadAction({ format, label, icon: Icon, uploadId }) {
-  const href = `/api/download/${uploadId}?format=${format}`;
-  const filename = `cat_output_${uploadId?.slice(0, 8)}.${format}`;
+function DownloadAction({ format, label, icon: Icon, uploadId, apiPath = 'download' }) {
+  const href = `/api/${apiPath}/${uploadId}?format=${format}`;
+  const filename = `${apiPath === 'download' ? 'cat_output' : 'account_output'}_${uploadId?.slice(0, 8)}.${format}`;
   return (
     <a
-      id={`btn-download-${format}`}
+      id={`btn-${apiPath}-${format}`}
       href={href}
       download={filename}
       onClick={() => toast.success(`${label} download started`)}
-      className="flex items-center gap-2 px-5 py-2.5 rounded-xl gradient-primary glow-primary-sm text-white text-[13px] font-semibold hover:opacity-90 hover:-translate-y-0.5 transition-all no-underline"
+      className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary glow-primary-sm text-white text-[12px] font-semibold hover:opacity-90 hover:-translate-y-0.5 transition-all no-underline shrink-0 whitespace-nowrap"
     >
-      <Icon className="w-4 h-4" />
+      <Icon className="w-3.5 h-3.5" />
       {label}
     </a>
   );
@@ -180,14 +180,32 @@ export default function DonePage() {
       </div>
 
       {/* ── Export Bar ──────────────────────────────────────────────────────── */}
-      <div className="glass rounded-2xl p-4 mb-8 flex flex-wrap items-center justify-between gap-3 border border-border/40">
-        <div>
-          <p className="font-semibold text-sm text-foreground">Export Processed Output</p>
-          <p className="text-[11px] text-muted-foreground mt-0.5">Download the normalized data with all pipeline enrichments applied.</p>
+      <div className="glass rounded-2xl p-4 mb-8 flex flex-col gap-4 border border-border/40">
+        
+        {/* Full Pipeline Output */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0 pr-4">
+            <p className="font-semibold text-sm text-foreground">Export Processed Output</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Download the normalized data with all pipeline enrichments applied.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <DownloadAction format="xlsx" label="Export Excel" icon={FileSpreadsheet} uploadId={uploadId} />
+            <DownloadAction format="tsv"  label="Export TSV"   icon={FileText}        uploadId={uploadId} />
+          </div>
         </div>
-        <div className="flex gap-3">
-          <DownloadAction format="xlsx" label="Export to Excel" icon={FileSpreadsheet} uploadId={uploadId} />
-          <DownloadAction format="csv"  label="Export CSV"      icon={FileText}        uploadId={uploadId} />
+
+        <div className="h-px bg-border/40 w-full" />
+
+        {/* Account Output */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0 pr-4">
+            <p className="font-semibold text-sm text-foreground">Export Account File</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Download structured account-level summary required for modeling.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <DownloadAction apiPath="download-account" format="xlsx" label="Account Excel" icon={FileSpreadsheet} uploadId={uploadId} />
+            <DownloadAction apiPath="download-account" format="tsv"  label="Account TSV"   icon={FileText}        uploadId={uploadId} />
+          </div>
         </div>
       </div>
 
